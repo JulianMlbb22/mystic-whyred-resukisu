@@ -31,15 +31,19 @@ jobs:
           echo "CONFIG_KSU=y" >> $DEF
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEF
           echo "# CONFIG_KSU_SUSFS is not set" >> $DEF
+          # KPROBES wajib
           echo "CONFIG_KPROBES=y" >> $DEF
           echo "CONFIG_HAVE_KPROBES=y" >> $DEF
           echo "CONFIG_KPROBE_EVENTS=y" >> $DEF
+          # KALLSYMS wajib buat ReSukiSU 4.4 non-GKI - INI FIX UNTUK LOG SEKARANG
+          echo "CONFIG_KALLSYMS=y" >> $DEF
+          echo "CONFIG_KALLSYMS_ALL=y" >> $DEF
+          echo "CONFIG_KALLSYMS_BASE_RELATIVE=n" >> $DEF
           echo "# CONFIG_WERROR is not set" >> $DEF
 
           # FIX 1: bpf.h
           sed -i '10i #include <linux/err.h>' include/linux/bpf.h
-
-          # FIX 2: cgroup.h 660
+          # FIX 2: cgroup.h
           python3 << 'PY'
           from pathlib import Path
           p = Path("include/linux/cgroup.h")
@@ -51,13 +55,11 @@ jobs:
                   break
           p.write_text("\n".join(lines)+"\n")
           PY
-
-          # FIX 3: dtc yylloc
+          # FIX 3: dtc
           sed -i 's/YYLTYPE yylloc/extern YYLTYPE yylloc/' scripts/dtc/dtc-lexer.lex.c_shipped || true
           # FIX 4: sched.h NR_CPUS
           sed -i '/Unsupported NR_CPUS for lb tracepoint/d' include/trace/events/sched.h || true
-          
-          # FIX 5: kernel/cpu.c - FIX YANG BENER, JANGAN TIMPA #define
+          # FIX 5: kernel/cpu.c BIG_CPU_MASK
           python3 << 'PY'
           from pathlib import Path
           p = Path("kernel/cpu.c")
@@ -65,19 +67,15 @@ jobs:
           new=[]
           for line in txt:
               if line.strip().startswith("#define") and "CPU_MASK" in line:
-                  # JANGAN DIUBAH, biarin definisi macro nya
                   new.append(line)
               else:
-                  # cuma ubah assignment nya
                   if "big_cluster_cpus" in line and "BIG_CPU_MASK" in line:
                       line = line.replace("BIG_CPU_MASK", "0xF0").replace("const ", "")
                   if "little_cluster_cpus" in line and "LITTLE_CPU_MASK" in line:
                       line = line.replace("LITTLE_CPU_MASK", "0x0F").replace("const ", "")
                   new.append(line)
           p.write_text("\n".join(new)+"\n")
-          print("cpu.c fixed correctly")
           PY
-          grep -n "big_cluster_cpus\|little_cluster_cpus\|define.*CPU_MASK" kernel/cpu.c | tail -n 20
 
       - name: Build
         run: |
