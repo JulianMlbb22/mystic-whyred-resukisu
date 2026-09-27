@@ -39,7 +39,7 @@ jobs:
           # FIX 1: bpf.h
           sed -i '10i #include <linux/err.h>' include/linux/bpf.h
 
-          # FIX 2: cgroup.h 660 - FINAL
+          # FIX 2: cgroup.h 660
           python3 << 'PY'
           from pathlib import Path
           p = Path("include/linux/cgroup.h")
@@ -55,9 +55,13 @@ jobs:
           # FIX 3: dtc yylloc
           sed -i 's/YYLTYPE yylloc/extern YYLTYPE yylloc/' scripts/dtc/dtc-lexer.lex.c_shipped || true
 
-          # FIX 4: NR_CPUS lb tracepoint - INI YANG BIKIN FAIL SEKARANG
-          sed -i '/Unsupported NR_CPUS for lb tracepoint/d' include/trace/events/sched.h
-          grep -n "NR_CPUS" include/trace/events/sched.h | head -n 20
+          # FIX 4: sched.h NR_CPUS error
+          sed -i '/Unsupported NR_CPUS for lb tracepoint/d' include/trace/events/sched.h || true
+
+          # FIX 5: cpu.c BIG_CPU_MASK is not constant - INI YANG BIKIN FAIL SEKARANG
+          sed -i 's/static const unsigned long big_cluster_cpus = BIG_CPU_MASK;/static unsigned long big_cluster_cpus = BIG_CPU_MASK;/' kernel/cpu.c
+          sed -i 's/static const unsigned long little_cluster_cpus = LITTLE_CPU_MASK;/static unsigned long little_cluster_cpus = LITTLE_CPU_MASK;/' kernel/cpu.c || true
+          grep -n "big_cluster_cpus\|LITTLE_CPU_MASK\|BIG_CPU_MASK" kernel/cpu.c | head -n 20
 
       - name: Build
         run: |
