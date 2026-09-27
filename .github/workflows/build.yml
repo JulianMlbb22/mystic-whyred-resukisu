@@ -18,33 +18,14 @@ jobs:
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 --depth=1 gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 --depth=1 gcc32
 
-      - name: Clone Kernel - FIX BRANCH
+      - name: Clone Kernel
         run: |
           rm -rf kernel
-          # Coba branch stable yang pasti ada whyred_defconfig nya
           git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1 --branch Mystic-X9.2 || \
-          git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1 --branch Mystic-EOL || \
           git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1
-          
           cd kernel
-          # Kalau masih gak ketemu, fetch semua branch dan checkout yang ada whyred
-          if [ ! -f arch/arm64/configs/whyred_defconfig ]; then
-            echo "whyred_defconfig not in current branch, searching other branches..."
-            git fetch --depth=1 origin --no-tags 2>&1 | tail -n 20
-            git branch -a | head -n 30
-            for BR in Mystic-X9.2 Mystic-EOL Mystic-X9.3 Mystic-X8.9 main master; do
-              git checkout $BR --depth=1 2>/dev/null || git checkout origin/$BR 2>/dev/null || true
-              if [ -f arch/arm64/configs/whyred_defconfig ]; then
-                echo "FOUND in $BR"
-                break
-              fi
-            done
-          fi
-          
-          echo "=== Final check ==="
-          ls arch/arm64/configs/ | grep -i whyred
-          ls -lh arch/arm64/configs/whyred_defconfig
-          find arch -name "*whyred*defconfig*"
+          echo "=== LIST DEFCONFIG ==="
+          ls arch/arm64/configs/ | grep whyred
 
       - name: Patch ReSukiSU + ALL FIX
         run: |
@@ -52,14 +33,15 @@ jobs:
           rm -rf KernelSU drivers/kernelsu
           curl -LSs https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh | bash -s main
 
-          DEF="arch/arm64/configs/whyred_defconfig"
-          echo "DEF FOUND: $DEF"
+          # AUTO FIND DEFCONFIG YANG ADA
+          DEF=$(ls arch/arm64/configs/*whyred*defconfig | head -n 1)
+          echo "DEF DIPAKE: $DEF"
           ls -lh $DEF
 
-          sed -i '/CONFIG_KALLSYMS/d' $DEF || true
-          sed -i '/CONFIG_KPROBES/d' $DEF || true
-          sed -i '/CONFIG_KSU/d' $DEF || true
-          sed -i '/CONFIG_WERROR/d' $DEF || true
+          sed -i '/CONFIG_KALLSYMS/d' $DEF
+          sed -i '/CONFIG_KPROBES/d' $DEF
+          sed -i '/CONFIG_KSU/d' $DEF
+          sed -i '/CONFIG_WERROR/d' $DEF
           echo "CONFIG_KSU=y" >> $DEF
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEF
           echo "# CONFIG_KSU_SUSFS is not set" >> $DEF
@@ -71,9 +53,8 @@ jobs:
           echo "# CONFIG_KALLSYMS_BASE_RELATIVE is not set" >> $DEF
           echo "# CONFIG_WERROR is not set" >> $DEF
 
-          # FIX 1: bpf.h
-          sed -i '10i #include <linux/err.h>' include/linux/bpf.h || true
-          # FIX 2: cgroup.h
+          sed -i '10i #include <linux/err.h>' include/linux/bpf.h
+
           python3 << 'PY'
           from pathlib import Path
           p = Path("include/linux/cgroup.h")
@@ -85,11 +66,11 @@ jobs:
                   break
           p.write_text("\n".join(lines)+"\n")
           PY
-          # FIX 3: dtc
+
           sed -i 's/YYLTYPE yylloc/extern YYLTYPE yylloc/' scripts/dtc/dtc-lexer.lex.c_shipped || true
-          # FIX 4: sched.h NR_CPUS
           sed -i '/Unsupported NR_CPUS for lb tracepoint/d' include/trace/events/sched.h || true
-          # FIX 5: cpu.c
+          sed -i 's/if (!test_bit(NOHZ_STATS_KICK, nohz_flags(this_rq->cpu)))/if (0)/' kernel/sched/fair.c || true
+
           python3 << 'PY'
           from pathlib import Path
           p = Path("kernel/cpu.c")
@@ -106,8 +87,6 @@ jobs:
                   new.append(line)
           p.write_text("\n".join(new)+"\n")
           PY
-          # FIX 6: fair.c NOHZ
-          sed -i 's/if (!test_bit(NOHZ_STATS_KICK, nohz_flags(this_rq->cpu)))/if (0)/' kernel/sched/fair.c || true
 
       - name: Build
         run: |
@@ -117,7 +96,9 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           mkdir -p out
-          make O=out whyred_defconfig
+          DEFNAME=$(basename $(ls arch/arm64/configs/*whyred*defconfig | head -n 1))
+          echo "Build defconfig: $DEFNAME"
+          make O=out $DEFNAME
           make O=out -j$(nproc) HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-fcommon -w" KCFLAGS="-w -Wno-error" Image.gz-dtb
 
       - name: Pack AK3
