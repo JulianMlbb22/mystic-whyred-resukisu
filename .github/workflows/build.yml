@@ -21,7 +21,7 @@ jobs:
       - name: Clone Kernel
         run: git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1
 
-      - name: Patch ReSukiSU
+      - name: Patch ReSukiSU + ALL FIX
         run: |
           cd kernel
           rm -rf KernelSU drivers/kernelsu
@@ -38,8 +38,7 @@ jobs:
 
           # FIX 1: bpf.h
           sed -i '10i #include <linux/err.h>' include/linux/bpf.h
-
-          # FIX 2: cgroup.h 660
+          # FIX 2: cgroup.h
           python3 << 'PY'
           from pathlib import Path
           p = Path("include/linux/cgroup.h")
@@ -51,17 +50,28 @@ jobs:
                   break
           p.write_text("\n".join(lines)+"\n")
           PY
-
-          # FIX 3: dtc yylloc
+          # FIX 3: dtc
           sed -i 's/YYLTYPE yylloc/extern YYLTYPE yylloc/' scripts/dtc/dtc-lexer.lex.c_shipped || true
-
-          # FIX 4: sched.h NR_CPUS error
+          # FIX 4: sched tracepoint
           sed -i '/Unsupported NR_CPUS for lb tracepoint/d' include/trace/events/sched.h || true
-
-          # FIX 5: cpu.c BIG_CPU_MASK is not constant - INI YANG BIKIN FAIL SEKARANG
-          sed -i 's/static const unsigned long big_cluster_cpus = BIG_CPU_MASK;/static unsigned long big_cluster_cpus = BIG_CPU_MASK;/' kernel/cpu.c
-          sed -i 's/static const unsigned long little_cluster_cpus = LITTLE_CPU_MASK;/static unsigned long little_cluster_cpus = LITTLE_CPU_MASK;/' kernel/cpu.c || true
-          grep -n "big_cluster_cpus\|LITTLE_CPU_MASK\|BIG_CPU_MASK" kernel/cpu.c | head -n 20
+          
+          # FIX 5: kernel/cpu.c BIG_CPU_MASK is not constant - INI FIX UNTUK LOG SEKARANG
+          python3 << 'PY'
+          import pathlib
+          p = pathlib.Path("kernel/cpu.c")
+          txt = p.read_text()
+          # ganti apapun yang ada BIG_CPU_MASK / LITTLE_CPU_MASK jadi constant
+          txt = txt.replace("static unsigned long big_cluster_cpus = BIG_CPU_MASK;", "static unsigned long big_cluster_cpus = 0xF0;")
+          txt = txt.replace("static const unsigned long big_cluster_cpus = BIG_CPU_MASK;", "static unsigned long big_cluster_cpus = 0xF0;")
+          txt = txt.replace("static unsigned long little_cluster_cpus = LITTLE_CPU_MASK;", "static unsigned long little_cluster_cpus = 0x0F;")
+          txt = txt.replace("static const unsigned long little_cluster_cpus = LITTLE_CPU_MASK;", "static unsigned long little_cluster_cpus = 0x0F;")
+          # fallback kalau definisi beda baris
+          txt = txt.replace("BIG_CPU_MASK", "0xF0")
+          txt = txt.replace("LITTLE_CPU_MASK", "0x0F")
+          p.write_text(txt)
+          print("cpu.c patched")
+          PY
+          grep -n "big_cluster_cpus\|little_cluster" kernel/cpu.c | head -n 20
 
       - name: Build
         run: |
