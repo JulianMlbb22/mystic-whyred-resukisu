@@ -2,15 +2,13 @@ name: Build Mystic ReSukiSU GCC FIX
 on: workflow_dispatch
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Install Deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev libelf-dev build-essential
+        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev build-essential python2
 
-      - name: GCC Toolchain (buat kernel 4.4)
+      - name: GCC 4.9 for 4.4 Kernel
         run: |
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 --depth=1 gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 --depth=1 gcc32
@@ -25,9 +23,8 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
           echo "CONFIG_KSU=y" >> arch/arm64/configs/whyred_defconfig
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/whyred_defconfig
-          echo "CONFIG_KPROBES=y" >> arch/arm64/configs/whyred_defconfig
 
-      - name: Build with GCC (bukan Clang)
+      - name: Build
         run: |
           cd kernel
           export ARCH=arm64
@@ -35,12 +32,14 @@ jobs:
           export PATH=$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
-          export HOSTCFLAGS="-fcommon"
+          export KBUILD_BUILD_USER=Julian
           mkdir -p out
+          # fix DTC multiple definition yylloc
+          sed -i 's/extern YYLTYPE yylloc;/extern YYLTYPE yylloc;\nYYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped || true
           make O=out whyred_defconfig
-          make O=out -j$(nproc) Image.gz-dtb
+          make O=out -j$(nproc) HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" Image.gz-dtb
 
-      - name: Pack AnyKernel3
+      - name: Pack
         run: |
           git clone https://github.com/osm0sis/AnyKernel3 --depth=1 AnyKernel3
           cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
