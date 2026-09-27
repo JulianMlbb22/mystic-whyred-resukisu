@@ -28,8 +28,8 @@ jobs:
           curl -LSs https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh | bash -s main
           echo "CONFIG_KSU=y" >> arch/arm64/configs/whyred_defconfig
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/whyred_defconfig
+          # FIX ERR_PTR
           sed -i '10i #include <linux/err.h>' include/linux/bpf.h
-          sed -i 's/-Werror//g' Makefile
 
       - name: Build
         run: |
@@ -40,7 +40,8 @@ jobs:
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           mkdir -p out
           make O=out whyred_defconfig
-          make O=out -j$(nproc) HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" KCFLAGS="-Wno-error" Image.gz-dtb
+          # JANGAN pakai KCFLAGS -Werror, cukup -fcommon buat host
+          make O=out -j$(nproc) HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" Image.gz-dtb
 
       - name: Pack AK3
         run: |
