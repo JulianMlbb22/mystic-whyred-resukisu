@@ -1,51 +1,81 @@
 name: Build Mystic ReSukiSU GCC FIX
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Deps
-        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev build-essential python2
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: GCC 4.9 for 4.4 Kernel
+      - name: Install Deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev build-essential python2 python3 libncurses5-dev libncursesw5-dev git zip unzip
+
+      - name: GCC 4.9 Toolchain (buat kernel 4.4)
         run: |
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 --depth=1 gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 --depth=1 gcc32
+          echo "$GITHUB_WORKSPACE/gcc64/bin" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/gcc32/bin" >> $GITHUB_PATH
 
-      - name: Clone Mystic
-        run: git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1
+      - name: Clone Mystic Kernel
+        run: |
+          git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1
 
-      - name: Add ReSukiSU
+      - name: Add ReSukiSU + Patch Build Error GCC 10+
         run: |
           cd kernel
           rm -rf KernelSU drivers/kernelsu
+
+          # Install ReSukiSU resmi
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
+
+          # Aktifkan di defconfig whyred
           echo "CONFIG_KSU=y" >> arch/arm64/configs/whyred_defconfig
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/whyred_defconfig
+          echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/whyred_defconfig
+          echo "# CONFIG_WERROR is not set" >> arch/arm64/configs/whyred_defconfig
 
-      - name: Build
+          # FIX 1: error ERR_PTR implicit di bpf.h (ubuntu 22.04 GCC baru)
+          sed -i '10i #include <linux/err.h>' include/linux/bpf.h
+          grep -q "err.h" include/linux/bpf.h || sed -i '1i #include <linux/err.h>' include/linux/bpf.h
+
+          # FIX 2: matikan -Werror biar warning cgroup_taskset gak jadi error
+          sed -i 's/-Werror//g' Makefile || true
+          sed -i 's/-Werror//g' arch/arm64/Makefile || true
+          sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/' arch/arm64/configs/whyred_defconfig || true
+
+          # FIX 3: DTC multiple definition yylloc (bug kernel 4.4 + gcc baru)
+          sed -i 's/YYLTYPE yylloc/YYLTYPE yylloc; \/\//g' scripts/dtc/dtc-lexer.lex.c_shipped 2>/dev/null || true
+
+      - name: Build Kernel
         run: |
           cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
+          export KBUILD_BUILD_USER=Julian
+          export KBUILD_BUILD_HOST=Github
           export PATH=$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
-          export KBUILD_BUILD_USER=Julian
           mkdir -p out
-          # fix DTC multiple definition yylloc
-          sed -i 's/extern YYLTYPE yylloc;/extern YYLTYPE yylloc;\nYYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped || true
           make O=out whyred_defconfig
-          make O=out -j$(nproc) HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" Image.gz-dtb
+          make O=out -j$(nproc) HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=return-makes-pointer-from-integer" Image.gz-dtb
 
-      - name: Pack
+      - name: Make AnyKernel3 Zip
+        if: success()
         run: |
           git clone https://github.com/osm0sis/AnyKernel3 --depth=1 AnyKernel3
           cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-          cd AnyKernel3 && zip -r9 ../Mystic-Whyred-ReSukiSU.zip * -x .git README.md
+          cd AnyKernel3
+          zip -r9 ../Mystic-Whyred-ReSukiSU.zip * -x .git README.md
+          ls -lh ../Mystic-Whyred-ReSukiSU.zip
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
-          name: Mystic-Whyred-ReSukiSU
-          path: Mystic-Whyred-ReSukiSU.zip
+          name
