@@ -6,8 +6,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install Deps
         run: |
@@ -23,7 +22,7 @@ jobs:
         run: |
           git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1 --branch Mystic-X9.2
 
-      - name: Patch ReSukiSU + FIX MCPU
+      - name: Patch
         run: |
           cd kernel
           rm -rf KernelSU drivers/kernelsu
@@ -53,7 +52,7 @@ jobs:
           make O=out mystic-whyred-newcam_defconfig
           make O=out -j$(nproc) Image.gz-dtb
 
-      - name: Pack AnyKernel3
+      - name: Pack
         run: |
           ls -lh kernel/out/arch/arm64/boot/Image.gz-dtb
           git clone https://github.com/osm0sis/AnyKernel3 --depth=1 AnyKernel3
@@ -61,7 +60,7 @@ jobs:
           cd AnyKernel3
           zip -r9 ../Mystic-Whyred.zip * -x .git README.md
 
-      - name: Upload Artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: Mystic-Whyred
