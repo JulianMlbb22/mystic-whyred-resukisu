@@ -4,14 +4,15 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install Deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev libelf-dev build-essential python2 python3 zip
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev build-essential python3 python-is-python3 zip
 
       - name: Get GCC 4.9
         run: |
@@ -22,50 +23,58 @@ jobs:
         run: |
           git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1 --branch Mystic-X9.2
 
-      - name: Patch ReSukiSU + FIX MCPU
+      - name: Patch ReSukiSU + FIX ALL
         run: |
           cd kernel
           rm -rf KernelSU drivers/kernelsu
           curl -LSs https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh | bash -s main
           
           DEF=arch/arm64/configs/mystic-whyred-newcam_defconfig
-          sed -i '/KALLSYMS/d;/KPROBES/d;/KSU/d;/WERROR/d' $DEF
+          echo "Patch defconfig: $DEF"
+          
+          sed -i '/CONFIG_KALLSYMS/d' $DEF || true
+          sed -i '/CONFIG_KPROBES/d' $DEF || true
+          sed -i '/CONFIG_KSU/d' $DEF || true
+          sed -i '/CONFIG_WERROR/d' $DEF || true
           echo "CONFIG_KSU=y" >> $DEF
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEF
           echo "CONFIG_KPROBES=y" >> $DEF
+          echo "CONFIG_HAVE_KPROBES=y" >> $DEF
+          echo "CONFIG_KPROBE_EVENTS=y" >> $DEF
           echo "CONFIG_KALLSYMS=y" >> $DEF
           echo "CONFIG_KALLSYMS_ALL=y" >> $DEF
 
-          # FIX MCPU - INI YANG BIKIN ERROR KEMARIN
+          # FIX ERROR mcpu=cortex-a73.cortex-a53
           sed -i 's/cortex-a73.cortex-a53/cortex-a53/g' arch/arm64/Makefile || true
 
-          # FIX LAIN - SEMUA KASIH || true BIAR GAK EXIT CODE 1 LAGI
+          # FIX ERROR BPF + DTC + SCHED
           sed -i '10i #include <linux/err.h>' include/linux/bpf.h || true
           sed -i 's/YYLTYPE yylloc/extern YYLTYPE yylloc/' scripts/dtc/dtc-lexer.lex.c_shipped || true
           sed -i '/Unsupported NR_CPUS/d' include/trace/events/sched.h || true
           sed -i 's/if (!test_bit(NOHZ_STATS_KICK.*/if (0)/' kernel/sched/fair.c || true
 
-      - name: Build
+      - name: Build Kernel
         run: |
           cd kernel
           export ARCH=arm64
+          export SUBARCH=arm64
           export PATH=$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           mkdir -p out
           make O=out mystic-whyred-newcam_defconfig
-          make O=out -j$(nproc) Image.gz-dtb
+          make O=out -j$(nproc) Image.gz-dtb HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-fcommon -w" KCFLAGS="-w -Wno-error"
 
-      - name: Pack
+      - name: Pack AnyKernel3
         run: |
           ls -lh kernel/out/arch/arm64/boot/Image.gz-dtb
           git clone https://github.com/osm0sis/AnyKernel3 --depth=1 AnyKernel3
           cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           cd AnyKernel3
-          zip -r9 ../Mystic-Whyred.zip * -x .git README.md
+          zip -r9 ../Mystic-Whyred-ReSukiSU.zip * -x .git README.md
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Mystic-Whyred
-          path: Mystic-Whyred.zip
+          name: Mystic-Whyred-ReSukiSU
+          path: Mystic-Whyred-ReSukiSU.zip
