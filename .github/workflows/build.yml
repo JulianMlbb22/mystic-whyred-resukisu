@@ -1,16 +1,30 @@
 name: Build Mystic
-on: workflow_dispatch:
+
+on:
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev libelf-dev build-essential python3 python-is-python3 zip
-      - run: |
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev build-essential python3 python-is-python3 zip
+
+      - name: Get GCC 4.9
+        run: |
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 --depth=1 gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 --depth=1 gcc32
-      - run: git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1 --branch Mystic-X9.2
-      - name: Patch
+
+      - name: Clone Kernel
+        run: |
+          git clone https://github.com/okta-10/mystic_kernel_sdm660-4.4.git kernel --depth=1 --branch Mystic-X9.2
+
+      - name: Patch ReSukiSU
         run: |
           cd kernel
           rm -rf KernelSU drivers/kernelsu
@@ -22,6 +36,7 @@ jobs:
           sed -i 's/YYLTYPE yylloc/extern YYLTYPE yylloc/' scripts/dtc/dtc-lexer.lex.c_shipped || true
           sed -i '/Unsupported NR_CPUS/d' include/trace/events/sched.h || true
           sed -i 's/if (!test_bit(NOHZ_STATS_KICK.*/if (0)/' kernel/sched/fair.c || true
+
       - name: Build
         run: |
           cd kernel
@@ -32,11 +47,16 @@ jobs:
           mkdir -p out
           make O=out mystic-whyred-newcam_defconfig
           make O=out -j$(nproc) Image.gz-dtb KCFLAGS="-w -Wno-error" HOSTCFLAGS="-fcommon -w"
-      - run: |
+
+      - name: Pack AK3
+        run: |
           git clone https://github.com/osm0sis/AnyKernel3 --depth=1 AnyKernel3
           cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-          cd AnyKernel3 && zip -r9 ../Mystic-Whyred.zip * -x .git README.md
-      - uses: actions/upload-artifact@v4
+          cd AnyKernel3
+          zip -r9 ../Mystic-Whyred.zip * -x .git README.md
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
         with:
           name: Mystic-Whyred
           path: Mystic-Whyred.zip
